@@ -3,6 +3,8 @@ Baseline Models for NBA Game Prediction
 
 Implements simple, interpretable models as benchmarks.
 From research: Simple models often outperform complex ones in sports prediction.
+
+OPTIMIZED: Uses shared metrics module to eliminate code duplication.
 """
 
 import pandas as pd
@@ -12,13 +14,11 @@ import logging
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import GaussianNB
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import (
-    accuracy_score, precision_score, recall_score, f1_score,
-    roc_auc_score, confusion_matrix, classification_report
-)
 from sklearn.model_selection import cross_val_score, StratifiedKFold
 import joblib
 from pathlib import Path
+
+from ..utils.metrics import calculate_classification_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -212,15 +212,16 @@ class BaselineModel:
         y_pred: np.ndarray,
         y_prob: np.ndarray
     ) -> Dict:
-        """Calculate all evaluation metrics."""
-        return {
-            'accuracy': accuracy_score(y_true, y_pred),
-            'precision': precision_score(y_true, y_pred, zero_division=0),
-            'recall': recall_score(y_true, y_pred, zero_division=0),
-            'f1': f1_score(y_true, y_pred, zero_division=0),
-            'roc_auc': roc_auc_score(y_true, y_prob),
-            'confusion_matrix': confusion_matrix(y_true, y_pred).tolist()
-        }
+        """
+        Calculate all evaluation metrics.
+
+        OPTIMIZED: Uses shared metrics utility to eliminate code duplication.
+        """
+        return calculate_classification_metrics(
+            y_true=y_true.values if isinstance(y_true, pd.Series) else y_true,
+            y_pred=y_pred,
+            y_prob=y_prob
+        )
     
     def get_feature_importance(self) -> Optional[pd.DataFrame]:
         """

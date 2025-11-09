@@ -3,6 +3,8 @@ Ensemble Models for NBA Game Prediction
 
 Implements Random Forest and XGBoost with hyperparameter tuning.
 From research: Ensemble models generally outperform simple baselines in sports prediction.
+
+OPTIMIZED: Uses shared metrics module to eliminate code duplication.
 """
 
 import pandas as pd
@@ -11,13 +13,12 @@ from typing import Dict, Tuple, Optional, List
 import logging
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, StratifiedKFold
-from sklearn.metrics import (
-    accuracy_score, precision_score, recall_score, f1_score,
-    roc_auc_score, confusion_matrix, make_scorer
-)
+from sklearn.metrics import make_scorer
 import xgboost as xgb
 import joblib
 from pathlib import Path
+
+from ..utils.metrics import calculate_classification_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -241,15 +242,16 @@ class EnsembleModel:
         y_pred: np.ndarray,
         y_prob: np.ndarray
     ) -> Dict:
-        """Calculate all evaluation metrics."""
-        return {
-            'accuracy': accuracy_score(y_true, y_pred),
-            'precision': precision_score(y_true, y_pred, zero_division=0),
-            'recall': recall_score(y_true, y_pred, zero_division=0),
-            'f1': f1_score(y_true, y_pred, zero_division=0),
-            'roc_auc': roc_auc_score(y_true, y_prob),
-            'confusion_matrix': confusion_matrix(y_true, y_pred).tolist()
-        }
+        """
+        Calculate all evaluation metrics.
+
+        OPTIMIZED: Uses shared metrics utility to eliminate code duplication.
+        """
+        return calculate_classification_metrics(
+            y_true=y_true.values if isinstance(y_true, pd.Series) else y_true,
+            y_pred=y_pred,
+            y_prob=y_prob
+        )
 
     def get_feature_importance(self, top_n: int = 20) -> pd.DataFrame:
         """

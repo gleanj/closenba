@@ -3,6 +3,8 @@ Daily Data Updater for Real-Time Predictions
 
 Fetches yesterday's/today's games and updates the dataset for tomorrow's predictions.
 Critical for maintaining feature accuracy (rolling averages, streaks, etc.)
+
+OPTIMIZED: Uses date_helpers module to eliminate code duplication.
 """
 
 import pandas as pd
@@ -10,12 +12,17 @@ import numpy as np
 from typing import Dict, List, Optional
 import logging
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import time
 
 from .collectors import NBADataCollector
 from .labelers import GameLabeler
 from ..utils.config import get_config
+from ..utils.date_helpers import (
+    get_current_nba_season,
+    get_yesterday,
+    get_tomorrow
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,21 +54,17 @@ class DailyUpdater:
 
         Returns:
             DataFrame with yesterday's games
+
+        OPTIMIZED: Uses date_helpers for season calculation.
         """
-        yesterday = datetime.now() - timedelta(days=1)
+        yesterday = get_yesterday()
         yesterday_str = yesterday.strftime('%Y-%m-%d')
 
         logger.info(f"Fetching games from {yesterday_str}...")
 
         try:
-            # Get current season string (e.g., '2024-25')
-            current_year = datetime.now().year
-            current_month = datetime.now().month
-
-            if current_month >= 10:  # NBA season starts in October
-                season = f"{current_year}-{str(current_year + 1)[2:]}"
-            else:
-                season = f"{current_year - 1}-{str(current_year)[2:]}"
+            # Get current season string (e.g., '2024-25') - OPTIMIZED
+            season = get_current_nba_season()
 
             # Fetch all games for the season
             all_games = self.collector.get_season_games(season)
@@ -69,7 +72,7 @@ class DailyUpdater:
             # Filter for yesterday's games
             all_games['GAME_DATE'] = pd.to_datetime(all_games['GAME_DATE'])
             yesterday_games = all_games[
-                all_games['GAME_DATE'].dt.date == yesterday.date()
+                all_games['GAME_DATE'].dt.date == yesterday
             ]
 
             logger.info(f"Found {len(yesterday_games)} games from yesterday")
@@ -86,26 +89,23 @@ class DailyUpdater:
 
         Returns:
             DataFrame with today's completed games
+
+        OPTIMIZED: Uses date_helpers for season calculation.
         """
-        today = datetime.now()
+        today = date.today()
         today_str = today.strftime('%Y-%m-%d')
 
         logger.info(f"Fetching games from {today_str}...")
 
         try:
-            current_year = datetime.now().year
-            current_month = datetime.now().month
-
-            if current_month >= 10:
-                season = f"{current_year}-{str(current_year + 1)[2:]}"
-            else:
-                season = f"{current_year - 1}-{str(current_year)[2:]}"
+            # OPTIMIZED: Use date_helpers
+            season = get_current_nba_season()
 
             all_games = self.collector.get_season_games(season)
             all_games['GAME_DATE'] = pd.to_datetime(all_games['GAME_DATE'])
 
             today_games = all_games[
-                all_games['GAME_DATE'].dt.date == today.date()
+                all_games['GAME_DATE'].dt.date == today
             ]
 
             logger.info(f"Found {len(today_games)} games from today")
@@ -323,26 +323,23 @@ class TomorrowPredictor:
 
         Returns:
             DataFrame with tomorrow's scheduled games
+
+        OPTIMIZED: Uses date_helpers for season calculation.
         """
-        tomorrow = datetime.now() + timedelta(days=1)
+        tomorrow = get_tomorrow()
         tomorrow_str = tomorrow.strftime('%Y-%m-%d')
 
         logger.info(f"Fetching schedule for {tomorrow_str}...")
 
         try:
-            current_year = datetime.now().year
-            current_month = datetime.now().month
-
-            if current_month >= 10:
-                season = f"{current_year}-{str(current_year + 1)[2:]}"
-            else:
-                season = f"{current_year - 1}-{str(current_year)[2:]}"
+            # OPTIMIZED: Use date_helpers
+            season = get_current_nba_season()
 
             all_games = self.collector.get_season_games(season)
             all_games['GAME_DATE'] = pd.to_datetime(all_games['GAME_DATE'])
 
             tomorrow_games = all_games[
-                all_games['GAME_DATE'].dt.date == tomorrow.date()
+                all_games['GAME_DATE'].dt.date == tomorrow
             ]
 
             logger.info(f"Found {len(tomorrow_games)} games scheduled for tomorrow")
