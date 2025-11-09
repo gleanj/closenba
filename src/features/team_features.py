@@ -16,13 +16,60 @@ logger = logging.getLogger(__name__)
 class FourFactorsCalculator:
     """
     Calculate Dean Oliver's Four Factors of Basketball Success.
-    
+
     From research: These are the most correlated stats with winning:
     1. eFG% (40% weight) - Effective Field Goal %
     2. TOV% (25% weight) - Turnover %
     3. ORB% (20% weight) - Offensive Rebound %
     4. FTR (15% weight) - Free Throw Rate
     """
+
+    @staticmethod
+    def calculate_possessions(fga: float, fta: float, tov: float, oreb: float, dreb_opp: float) -> float:
+        """
+        Calculate team possessions (Dean Oliver's formula).
+
+        Formula: Poss = FGA - OREB + TOV + 0.44 * FTA
+        More accurate: Poss = 0.5 * ((Tm FGA + 0.4 * Tm FTA - 1.07 * (Tm OREB / (Tm OREB + Opp DREB)) *
+                                     (Tm FGA - Tm FGM) + Tm TOV) + (Opp FGA + 0.4 * Opp FTA - 1.07 * ...))
+
+        Simplified version for single team:
+        """
+        return fga - oreb + tov + 0.44 * fta
+
+    @staticmethod
+    def calculate_pace(poss: float, minutes: float = 48.0) -> float:
+        """
+        Calculate pace (possessions per 48 minutes).
+
+        Higher pace = faster game = more possessions = more scoring opportunities
+        Critical for normalizing stats across different game tempos.
+        """
+        if minutes == 0:
+            return 0.0
+        return (poss / minutes) * 48.0
+
+    @staticmethod
+    def calculate_offensive_rating(pts: float, poss: float) -> float:
+        """
+        Calculate offensive rating (points per 100 possessions).
+
+        Normalizes scoring by pace - allows comparison across different tempo games.
+        """
+        if poss == 0:
+            return 0.0
+        return (pts / poss) * 100.0
+
+    @staticmethod
+    def calculate_defensive_rating(pts_allowed: float, poss: float) -> float:
+        """
+        Calculate defensive rating (points allowed per 100 possessions).
+
+        Lower is better.
+        """
+        if poss == 0:
+            return 0.0
+        return (pts_allowed / poss) * 100.0
     
     @staticmethod
     def calculate_efg_pct(fgm: float, fga: float, fg3m: float) -> float:
@@ -201,43 +248,102 @@ class TeamFeatureEngineer:
     def calculate_volatility_features(self, team_game_logs: pd.DataFrame, window: int = 10) -> pd.DataFrame:
         """
         Calculate volatility and momentum features.
-        
+
         These are CRITICAL for our target: predicting competitive, volatile games.
-        
+
         Features:
         - std_point_diff: Standard deviation of point differential
-        - avg_largest_lead: Average of team's largest lead per game
-        - comeback_frequency: How often team came back from deficits
-        
+        - cv_point_diff: Coefficient of variation (normalized volatility)
+        - close_game_pct: Percentage of games decided by <= 5 points
+        - comeback_pct: Percentage of wins when trailing
+        - blowout_pct: Percentage of games won/lost by 15+ points
+
         Args:
             team_game_logs: Team's game logs with WIN/LOSS and point differential
             window: Rolling window size
-        
+
         Returns:
             DataFrame with volatility features
         """
         volatility_features = pd.DataFrame(index=team_game_logs.index)
-        
+
         # Calculate point differential for each game
         if 'PLUS_MINUS' in team_game_logs.columns:
             point_diff = team_game_logs['PLUS_MINUS']
-        else:
-            # Calculate from PTS and opponent PTS if available
+        elif 'PTS' in team_game_logs.columns:
+            # If we have PTS but not opponent PTS, we can't calculate this
+            # Will be handled when opponent stats are merged
             point_diff = pd.Series(0, index=team_game_logs.index)
-        
+        else:
+            point_diff = pd.Series(0, index=team_game_logs.index)
+
         # Standard deviation of point differential (volatility)
         volatility_features['std_point_diff'] = point_diff.rolling(
             window=window, min_periods=1
         ).std()
-        
+
+        # Coefficient of variation (normalized volatility)
+        mean_diff = point_diff.rolling(window=window, min_periods=1).mean()
+        volatility_features['cv_point_diff'] = (
+            volatility_features['std_point_diff'] / (abs(mean_diff) + 1)  # +1 to avoid division by zero
+        )
+
+        # Close game percentage (games within 5 points)
+        close_games = (abs(point_diff) <= 5).astype(int)
+        volatility_features['close_game_pct'] = close_games.rolling(
+            window=window, min_periods=1
+        ).mean()
+
+        # Blowout percentage (games won/lost by 15+ points)
+        blowouts = (abs(point_diff) >= 15).astype(int)
+        volatility_features['blowout_pct'] = blowouts.rolling(
+            window=window, min_periods=1
+        ).mean()
+
         # Win streak features
         if 'WL' in team_game_logs.columns:
             wins = (team_game_logs['WL'] == 'W').astype(int)
-            volatility_features['win_pct_L10'] = wins.rolling(
+            volatility_features['win_pct'] = wins.rolling(
                 window=window, min_periods=1
             ).mean()
-        
+
+            # Win/loss streaks (consecutive wins/losses)
+            win_streak = self._calculate_current_streak(team_game_logs['WL'])
+            volatility_features['current_streak'] = win_streak
+
+        # Scoring volatility (std of points scored)
+        if 'PTS' in team_game_logs.columns:
+            volatility_features['std_pts_scored'] = team_game_logs['PTS'].rolling(
+                window=window, min_periods=1
+            ).std()
+
+            # Scoring trend (recent average vs season average)
+            recent_avg = team_game_logs['PTS'].rolling(window=window, min_periods=1).mean()
+            season_avg = team_game_logs['PTS'].expanding(min_periods=1).mean()
+            volatility_features['pts_trend'] = recent_avg - season_avg
+
         return volatility_features
+
+    def _calculate_current_streak(self, wl_series: pd.Series) -> pd.Series:
+        """
+        Calculate current win/loss streak.
+
+        Positive = win streak, Negative = loss streak
+        """
+        streak = pd.Series(0, index=wl_series.index)
+        current = 0
+
+        for i, result in enumerate(wl_series):
+            if result == 'W':
+                current = current + 1 if current >= 0 else 1
+            elif result == 'L':
+                current = current - 1 if current <= 0 else -1
+            else:
+                current = 0
+
+            streak.iloc[i] = current
+
+        return streak
     
     def create_contextual_features(self, game_info: pd.Series) -> Dict[str, float]:
         """
@@ -285,39 +391,95 @@ class MatchupFeatureEngineer:
     ) -> pd.Series:
         """
         Create matchup features comparing home and away teams.
-        
+
         Features include:
         - Differentials (home - away) for all stats
         - Offensive/Defensive matchups (home offense vs away defense)
         - Competitive balance indicators
-        
+        - Combined volatility metrics
+
         Args:
             home_team_features: Home team's recent features
             away_team_features: Away team's recent features
-        
+
         Returns:
             Series with matchup features
         """
         matchup_features = {}
-        
+
         # Differentials for Four Factors
         for factor in ['eFG%_L10', 'TOV%_L10', 'ORB%_L10', 'FTR_L10']:
             if factor in home_team_features and factor in away_team_features:
                 matchup_features[f'{factor}_diff'] = (
                     home_team_features[factor] - away_team_features[factor]
                 )
-        
-        # Competitive balance score
-        # Lower = more evenly matched = more likely both teams lead
+
+        # Competitive balance score (CRITICAL for our target)
+        # Lower = more evenly matched = more likely both teams lead by 5+
         if 'PTS_L10' in home_team_features and 'PTS_L10' in away_team_features:
             matchup_features['competitive_balance'] = abs(
                 home_team_features['PTS_L10'] - away_team_features['PTS_L10']
             )
-        
+
+            # Win percentage difference
+            if 'win_pct' in home_team_features and 'win_pct' in away_team_features:
+                matchup_features['win_pct_diff'] = abs(
+                    home_team_features['win_pct'] - away_team_features['win_pct']
+                )
+
+                # Competitive matchup indicator (both teams similar strength)
+                # TRUE if win percentages within 0.15 of each other
+                win_pct_close = abs(home_team_features['win_pct'] - away_team_features['win_pct']) < 0.15
+                matchup_features['evenly_matched'] = 1.0 if win_pct_close else 0.0
+
         # Combined volatility (sum of both teams' volatility)
+        # Higher = both teams play volatile games = more likely for lead swings
         if 'std_point_diff' in home_team_features and 'std_point_diff' in away_team_features:
             matchup_features['combined_volatility'] = (
                 home_team_features['std_point_diff'] + away_team_features['std_point_diff']
             )
-        
+
+        # Combined close game percentage
+        if 'close_game_pct' in home_team_features and 'close_game_pct' in away_team_features:
+            matchup_features['combined_close_game_pct'] = (
+                home_team_features['close_game_pct'] + away_team_features['close_game_pct']
+            ) / 2.0
+
+        # Pace matchup (fast vs slow)
+        # High combined pace = more possessions = more opportunities for leads
+        if 'pace_L10' in home_team_features and 'pace_L10' in away_team_features:
+            matchup_features['combined_pace'] = (
+                home_team_features['pace_L10'] + away_team_features['pace_L10']
+            ) / 2.0
+
+            matchup_features['pace_diff'] = abs(
+                home_team_features['pace_L10'] - away_team_features['pace_L10']
+            )
+
+        # Offensive vs Defensive matchups
+        if 'offensive_rating_L10' in home_team_features and 'defensive_rating_L10' in away_team_features:
+            # Home offense vs Away defense
+            matchup_features['home_off_vs_away_def'] = (
+                home_team_features['offensive_rating_L10'] - away_team_features['defensive_rating_L10']
+            )
+
+        if 'offensive_rating_L10' in away_team_features and 'defensive_rating_L10' in home_team_features:
+            # Away offense vs Home defense
+            matchup_features['away_off_vs_home_def'] = (
+                away_team_features['offensive_rating_L10'] - home_team_features['defensive_rating_L10']
+            )
+
+        # Blowout tendency differential
+        if 'blowout_pct' in home_team_features and 'blowout_pct' in away_team_features:
+            # Low combined blowout % suggests competitive game
+            matchup_features['combined_blowout_pct'] = (
+                home_team_features['blowout_pct'] + away_team_features['blowout_pct']
+            ) / 2.0
+
+        # Momentum differential (streaks)
+        if 'current_streak' in home_team_features and 'current_streak' in away_team_features:
+            matchup_features['momentum_diff'] = (
+                home_team_features['current_streak'] - away_team_features['current_streak']
+            )
+
         return pd.Series(matchup_features)

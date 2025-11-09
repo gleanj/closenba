@@ -89,8 +89,8 @@ class GameLabeler:
         """
         # Method 1: Direct score columns
         if 'SCORE' in df.columns and 'VISITORSCORE' in df.columns:
-            home_scores = pd.to_numeric(df['SCORE'], errors='coerce').fillna(method='ffill').fillna(0)
-            away_scores = pd.to_numeric(df['VISITORSCORE'], errors='coerce').fillna(method='ffill').fillna(0)
+            home_scores = pd.to_numeric(df['SCORE'], errors='coerce').ffill().fillna(0)
+            away_scores = pd.to_numeric(df['VISITORSCORE'], errors='coerce').ffill().fillna(0)
             return home_scores.values, away_scores.values
         
         # Method 2: Parse SCOREMARGIN column
@@ -102,15 +102,20 @@ class GameLabeler:
             logger.warning("Could not find score columns in play-by-play data")
             return None
     
-    def _parse_score_margin(self, score_margin: pd.Series) -> Tuple[np.ndarray, np.ndarray]:
+    def _parse_score_margin(self, score_margin: pd.Series, home_team: str = None) -> Tuple[np.ndarray, np.ndarray]:
         """
         Parse SCOREMARGIN column to extract point differential.
-        
+
         Examples: "LAL 5", "TIE", "BOS 3"
+
+        Args:
+            score_margin: Series with score margins
+            home_team: Home team abbreviation (optional, for proper sign handling)
         """
-        # This is a simplified parser - may need adjustment based on actual data format
+        logger.warning("Using SCOREMARGIN parsing - less accurate than direct SCORE columns")
+
         point_diffs = []
-        
+
         for margin in score_margin:
             if pd.isna(margin) or margin == '' or margin == 'TIE':
                 point_diffs.append(0)
@@ -119,23 +124,29 @@ class GameLabeler:
                 try:
                     parts = str(margin).split()
                     if len(parts) >= 2:
+                        team_abbr = parts[0]
                         diff = int(parts[-1])
-                        # Determine sign based on team abbreviation (simplified)
-                        # In real implementation, need to know which team is home
+
+                        # If we know home team, determine sign correctly
+                        if home_team is not None:
+                            # Positive if home team is leading, negative if away
+                            diff = diff if team_abbr == home_team else -diff
+
                         point_diffs.append(diff)
                     else:
                         point_diffs.append(0)
-                except:
+                except (ValueError, IndexError):
+                    logger.debug(f"Could not parse score margin: {margin}")
                     point_diffs.append(0)
-        
+
         # Convert to numpy array
         point_diff_array = np.array(point_diffs)
-        
+
         # Derive scores (starting from 0-0)
         # This is approximate - for precise scores, use Method 1
         home_scores = np.maximum(0, point_diff_array).cumsum()
         away_scores = np.maximum(0, -point_diff_array).cumsum()
-        
+
         return home_scores, away_scores
     
     def _count_lead_changes(self, point_diff: np.ndarray) -> int:
