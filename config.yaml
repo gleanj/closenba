@@ -1,0 +1,126 @@
+# NBA "Both Teams Lead by 5+" Prediction Model Configuration
+
+# Data Collection Settings
+data_collection:
+  seasons:
+    - '2018-19'
+    - '2019-20'
+    - '2020-21'
+    - '2021-22'
+    - '2022-23'
+    - '2023-24'
+  
+  # CRITICAL: Rate limiting to avoid IP bans
+  rate_limit:
+    requests_per_second: 1.4  # ~700ms between requests (safe threshold)
+    timeout: 120  # Timeout for slow queries
+  
+  # Custom headers to mimic browser (avoid bot detection)
+  headers:
+    Host: 'stats.nba.com'
+    Connection: 'keep-alive'
+    Cache-Control: 'max-age=0'
+    Upgrade-Insecure-Requests: '1'
+    User-Agent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.86 Safari/537.36'
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8'
+    Accept-Encoding: 'gzip, deflate, br'
+    Accept-Language: 'en-US,en;q=0.9'
+
+# Target Definition
+target:
+  name: 'both_teams_lead_5plus'
+  description: 'Both teams led by 5 or more points at any point in the game'
+  threshold: 5  # Minimum lead in points
+
+# Feature Engineering
+features:
+  # Rolling window sizes for recent form
+  rolling_windows:
+    - 5   # Last 5 games
+    - 10  # Last 10 games
+    - 20  # Last 20 games
+  
+  # Dean Oliver's Four Factors
+  four_factors:
+    - 'eFG%'  # Effective Field Goal %
+    - 'TOV%'  # Turnover %
+    - 'ORB%'  # Offensive Rebound %
+    - 'FTR'   # Free Throw Rate
+  
+  # Contextual features
+  contextual:
+    - 'rest_days'
+    - 'back_to_back'
+    - 'home_away'
+    - 'distance_traveled'
+  
+  # Volatility features (custom for this target)
+  volatility:
+    - 'std_point_diff'
+    - 'lead_change_frequency'
+    - 'avg_largest_lead'
+    - 'comeback_frequency'
+
+# Model Configuration
+models:
+  baseline:
+    - 'LogisticRegression'
+    - 'GaussianNB'
+  
+  ensemble:
+    - 'RandomForest'
+    - 'XGBoost'
+  
+  advanced:
+    - 'XGBoost_SHAP'  # XGBoost with SHAP interpretability
+  
+  # Model hyperparameters
+  xgboost:
+    max_depth: 6
+    learning_rate: 0.1
+    n_estimators: 100
+    objective: 'binary:logistic'
+    eval_metric: 'logloss'
+  
+  random_forest:
+    n_estimators: 100
+    max_depth: 10
+    min_samples_split: 5
+    min_samples_leaf: 2
+
+# Train/Validation/Test Split
+data_split:
+  train: 0.7
+  validation: 0.15
+  test: 0.15
+  
+  # Time-based split (prevent data leakage)
+  method: 'chronological'
+
+# Evaluation Metrics
+evaluation:
+  primary: 'accuracy'
+  secondary:
+    - 'precision'
+    - 'recall'
+    - 'f1_score'
+    - 'roc_auc'
+  
+  # Classification threshold tuning
+  threshold_optimization: true
+
+# Paths
+paths:
+  data:
+    raw: 'data/raw/'
+    processed: 'data/processed/'
+    labels: 'data/labels/'
+  models: 'models/'
+  outputs: 'outputs/'
+  notebooks: 'notebooks/'
+
+# Logging
+logging:
+  level: 'INFO'
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  file: 'outputs/logs/model.log'
