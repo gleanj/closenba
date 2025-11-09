@@ -16,6 +16,7 @@ from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     roc_auc_score, confusion_matrix, classification_report
 )
+from sklearn.model_selection import cross_val_score, StratifiedKFold
 import joblib
 from pathlib import Path
 
@@ -158,6 +159,53 @@ class BaselineModel:
         
         return metrics
     
+    def cross_validate(self, X: pd.DataFrame, y: pd.Series, cv: int = 5) -> Dict:
+        """
+        Perform cross-validation on the model.
+
+        Args:
+            X: Feature DataFrame
+            y: Target variable
+            cv: Number of cross-validation folds
+
+        Returns:
+            Dictionary with cross-validation metrics
+        """
+        logger.info(f"Running {cv}-fold cross-validation...")
+
+        # Scale features if needed
+        if self.scaler is not None:
+            X_scaled = self.scaler.fit_transform(X)
+        else:
+            X_scaled = X.values
+
+        # Stratified K-Fold to maintain class balance
+        skf = StratifiedKFold(n_splits=cv, shuffle=True, random_state=42)
+
+        # Calculate multiple metrics
+        cv_metrics = {
+            'accuracy': cross_val_score(self.model, X_scaled, y, cv=skf, scoring='accuracy'),
+            'precision': cross_val_score(self.model, X_scaled, y, cv=skf, scoring='precision', error_score=0),
+            'recall': cross_val_score(self.model, X_scaled, y, cv=skf, scoring='recall', error_score=0),
+            'f1': cross_val_score(self.model, X_scaled, y, cv=skf, scoring='f1', error_score=0),
+            'roc_auc': cross_val_score(self.model, X_scaled, y, cv=skf, scoring='roc_auc')
+        }
+
+        # Calculate mean and std for each metric
+        cv_results = {}
+        for metric, scores in cv_metrics.items():
+            cv_results[f'{metric}_mean'] = scores.mean()
+            cv_results[f'{metric}_std'] = scores.std()
+
+        logger.info(f"Cross-validation results:")
+        logger.info(f"  Accuracy:  {cv_results['accuracy_mean']:.3f} (+/- {cv_results['accuracy_std']:.3f})")
+        logger.info(f"  Precision: {cv_results['precision_mean']:.3f} (+/- {cv_results['precision_std']:.3f})")
+        logger.info(f"  Recall:    {cv_results['recall_mean']:.3f} (+/- {cv_results['recall_std']:.3f})")
+        logger.info(f"  F1:        {cv_results['f1_mean']:.3f} (+/- {cv_results['f1_std']:.3f})")
+        logger.info(f"  ROC-AUC:   {cv_results['roc_auc_mean']:.3f} (+/- {cv_results['roc_auc_std']:.3f})")
+
+        return cv_results
+
     def _calculate_metrics(
         self,
         y_true: pd.Series,

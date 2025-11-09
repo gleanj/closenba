@@ -25,15 +25,17 @@ closenba/
 │   ├── data/
 │   │   ├── collectors.py     # nba_api data collection
 │   │   ├── labelers.py       # Label games (both teams led by 5+)
+│   │   ├── validation.py     # ✨ Data validation and preprocessing
 │   │   └── processors.py     # Data cleaning and preprocessing
 │   ├── features/
 │   │   ├── game_features.py  # Game-level features
-│   │   ├── team_features.py  # Team statistics and metrics
+│   │   ├── team_features.py  # ✨ Enhanced: Team stats, Four Factors, pace, volatility
 │   │   └── momentum_features.py  # Momentum and volatility features
 │   ├── models/
-│   │   ├── baseline.py       # Logistic Regression baseline
-│   │   ├── ensemble.py       # Random Forest, XGBoost
-│   │   └── deep_learning.py  # Neural networks if needed
+│   │   ├── baseline.py       # ✨ Enhanced: Logistic Regression with CV
+│   │   ├── ensemble.py       # ✨ NEW: Random Forest, XGBoost with tuning
+│   │   ├── pipeline.py       # ✨ NEW: End-to-end training pipeline
+│   │   └── deep_learning.py  # Neural networks if needed later
 │   └── utils/
 │       ├── config.py         # Configuration and constants
 │       ├── rate_limiter.py   # API rate limiting
@@ -43,6 +45,51 @@ closenba/
 ├── requirements.txt
 └── config.yaml
 ```
+
+## ✨ Recent Accuracy Improvements
+
+**Major enhancements implemented to maximize prediction accuracy:**
+
+### 1. **Critical Bug Fixes**
+- ✅ Fixed deprecated pandas `fillna(method='ffill')` in labelers.py
+- ✅ Improved score parsing accuracy for play-by-play data
+- ✅ Enhanced error handling throughout codebase
+
+### 2. **Advanced Feature Engineering**
+- ✅ **Pace Calculations**: Possessions per 48 minutes for tempo normalization
+- ✅ **Offensive/Defensive Ratings**: Points per 100 possessions
+- ✅ **Enhanced Volatility Features**:
+  - Coefficient of variation (normalized volatility)
+  - Close game percentage (games within 5 points)
+  - Blowout percentage (games won/lost by 15+)
+  - Scoring trends and streaks
+- ✅ **Competitive Balance Indicators**:
+  - Evenly matched teams detection
+  - Win percentage differentials
+  - Combined volatility metrics
+- ✅ **Momentum Features**:
+  - Current win/loss streaks
+  - Points trend (recent vs season average)
+  - Offensive vs defensive matchups
+
+### 3. **Model Improvements**
+- ✅ **Cross-Validation**: Stratified K-Fold CV for robust evaluation
+- ✅ **Hyperparameter Tuning**: RandomizedSearchCV for optimal parameters
+- ✅ **Ensemble Models**: Random Forest and XGBoost with auto-tuning
+- ✅ **Class Imbalance Handling**: Proper scaling for imbalanced datasets
+- ✅ **Feature Importance Analysis**: Identify most predictive features
+
+### 4. **Data Quality**
+- ✅ **Data Validation**: Automated checks for missing values, outliers, duplicates
+- ✅ **Preprocessing Pipeline**: Robust handling of missing data and outliers
+- ✅ **Feature Selection**: Remove noise and improve generalization
+- ✅ **Time-Based Splitting**: Chronological split prevents look-ahead bias
+
+### 5. **Comprehensive Training Pipeline**
+- ✅ **End-to-End Automation**: From data prep to model selection
+- ✅ **Multiple Model Comparison**: Automatically compare all models
+- ✅ **Best Model Selection**: Choose optimal model based on validation metrics
+- ✅ **Results Tracking**: Save all metrics and models for reproducibility
 
 ## 🚀 Quick Start
 
@@ -105,18 +152,65 @@ engineer = TeamFeatureEngineer(rolling_windows=[10, 20])
 rolling_features = engineer.create_rolling_features(team_game_logs)
 ```
 
-### 6. Train Models
+### 6. Train Models (New Enhanced Pipeline)
+
+**Option A: Use the automated pipeline (Recommended)**
+
+```python
+from src.models.pipeline import ModelPipeline
+from pathlib import Path
+
+# Create pipeline
+pipeline = ModelPipeline(output_dir=Path('outputs/models'))
+
+# Run complete training pipeline
+# This will:
+# - Validate data quality
+# - Preprocess and split data (time-based)
+# - Train baseline models (Logistic Regression, Naive Bayes)
+# - Train ensemble models (Random Forest, XGBoost)
+# - Perform hyperparameter tuning
+# - Select best model
+# - Evaluate on test set
+# - Save results
+
+results = pipeline.run_full_pipeline(
+    df=features_df,  # Your feature DataFrame
+    target_col='both_teams_led_5plus',
+    date_col='game_date',
+    train_baseline=True,
+    train_ensemble=True,
+    tune_hyperparameters=True
+)
+
+print(f"Best model: {pipeline.best_model_name}")
+print(f"Test accuracy: {results['best_model']['test_metrics']['accuracy']:.3f}")
+print(f"Test ROC-AUC: {results['best_model']['test_metrics']['roc_auc']:.3f}")
+```
+
+**Option B: Train individual models**
 
 ```python
 from src.models.baseline import BaselineModel
+from src.models.ensemble import EnsembleModel
 
-# Train Logistic Regression
-model = BaselineModel(model_type='logistic')
-model.fit(X_train, y_train)
+# Baseline: Logistic Regression with Cross-Validation
+lr_model = BaselineModel(model_type='logistic', scale_features=True)
+lr_model.fit(X_train, y_train)
+cv_results = lr_model.cross_validate(X_train, y_train, cv=5)
+metrics = lr_model.evaluate(X_test, y_test)
+print(f"Logistic Regression - Accuracy: {metrics['accuracy']:.3f}")
 
-# Evaluate
-metrics = model.evaluate(X_test, y_test)
-print(f"Accuracy: {metrics['accuracy']:.3f}")
+# Ensemble: XGBoost with Hyperparameter Tuning
+xgb_model = EnsembleModel(model_type='xgboost', tune_hyperparameters=True)
+xgb_model.fit(X_train, y_train, X_val, y_val)
+metrics = xgb_model.evaluate(X_test, y_test)
+print(f"XGBoost - Accuracy: {metrics['accuracy']:.3f}")
+
+# Get feature importance
+importance = xgb_model.get_feature_importance(top_n=15)
+print("\nTop 15 Most Important Features:")
+print(importance)
 ```
 
 ## 📊 Key Features
@@ -224,7 +318,12 @@ Key findings applied:
 - [x] Game labeling system (both teams led by 5+)
 - [x] Feature engineering (Four Factors, volatility)
 - [x] Baseline models (Logistic Regression, Naive Bayes)
-- [ ] Advanced ensemble models (Random Forest, XGBoost)
+- [x] ✨ Advanced ensemble models (Random Forest, XGBoost)
+- [x] ✨ Cross-validation and hyperparameter tuning
+- [x] ✨ Data validation and preprocessing pipeline
+- [x] ✨ Enhanced feature engineering (pace, ratings, advanced volatility)
+- [x] ✨ Feature importance analysis
+- [x] ✨ Comprehensive training pipeline
 - [ ] Model interpretability (SHAP)
 - [ ] Backtesting framework
 - [ ] Real-time prediction pipeline
