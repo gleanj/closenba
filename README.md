@@ -311,6 +311,92 @@ Key findings applied:
 - Simple models often outperform complex ones
 - Rate limiting is non-negotiable
 
+## 🔄 Real-Time Predictions (NEW!)
+
+**CRITICAL**: Your rolling features (L5, L10, L20 games) require **daily updates** for accurate predictions.
+
+### Why Today's Data Matters
+
+If you're predicting tomorrow's LAL vs GSW game:
+- **Without today's update**: Features use data from 2+ days ago (stale)
+- **With today's update**: Features include tonight's results (fresh)
+
+**Impact on Accuracy:**
+- Stale features can reduce accuracy by 10-15%
+- Recent momentum/form changes are missed
+- Injuries from today's game aren't reflected
+
+### Daily Update Workflow
+
+**Step 1: Update Dataset with Latest Results**
+
+Run daily (e.g., via cron at 2 AM after games finish):
+
+```bash
+# Update with yesterday's results
+python scripts/daily_update.py
+
+# Or include today's results (for evening updates)
+python scripts/daily_update.py --include-today
+```
+
+This fetches:
+- Yesterday's game results
+- Play-by-play data for labeling
+- Boxscores for features
+- Updates rolling averages, streaks, etc.
+
+**Step 2: Generate Tomorrow's Predictions**
+
+```bash
+python scripts/predict_tomorrow.py --model models/best_model_xgboost.joblib
+```
+
+This:
+1. Updates data with latest results (optional: use `--no-update` to skip)
+2. Recalculates features with fresh data
+3. Fetches tomorrow's schedule
+4. Generates predictions
+5. Saves to `outputs/predictions/tomorrow.csv`
+
+**Step 3: Automate with Cron** (Linux/Mac)
+
+```bash
+# Edit crontab
+crontab -e
+
+# Add this line to run at 2 AM daily
+0 2 * * * cd /path/to/closenba && /path/to/venv/bin/python scripts/daily_update.py
+```
+
+Or use Windows Task Scheduler for automation.
+
+### Manual Usage
+
+```python
+from src.data.daily_updater import DailyUpdater, TomorrowPredictor
+from pathlib import Path
+
+# Update data
+updater = DailyUpdater(data_dir=Path('data/raw'))
+summary = updater.run_daily_update(include_today=True)
+print(f"Updated {summary['games_updated']} games")
+
+# Generate predictions
+predictor = TomorrowPredictor(
+    model_path=Path('models/best_model_xgboost.joblib'),
+    data_dir=Path('data/raw')
+)
+predictions = predictor.predict_tomorrow(update_data=True)
+```
+
+### Data Freshness Best Practices
+
+1. **Train on historical data** (one-time): Use `pipeline.run_full_pipeline()`
+2. **Update daily**: Run `daily_update.py` every morning
+3. **Predict daily**: Run `predict_tomorrow.py` for next day's games
+4. **Retrain monthly**: Update model with new month's data
+
 ## 📝 Development Roadmap
 
 - [x] Project structure and configuration
@@ -324,9 +410,10 @@ Key findings applied:
 - [x] ✨ Enhanced feature engineering (pace, ratings, advanced volatility)
 - [x] ✨ Feature importance analysis
 - [x] ✨ Comprehensive training pipeline
+- [x] ✨ Daily data updates and real-time predictions
 - [ ] Model interpretability (SHAP)
 - [ ] Backtesting framework
-- [ ] Real-time prediction pipeline
+- [ ] Full feature engineering integration for daily predictions
 - [ ] Deployment with monitoring
 
 ## 🤝 Contributing
