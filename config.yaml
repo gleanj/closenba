@@ -13,7 +13,7 @@ data_collection:
   # CRITICAL: Rate limiting to avoid IP bans
   rate_limit:
     requests_per_second: 1.4  # ~700ms between requests (safe threshold)
-    timeout: 120  # Timeout for slow queries
+    timeout: 30  # Timeout for slow queries (30s works better than 120s)
   
   # Custom headers to mimic browser (avoid bot detection)
   headers:
